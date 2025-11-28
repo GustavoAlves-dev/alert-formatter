@@ -4,6 +4,54 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import datetime
+import re
+from typing import Tuple, List
+
+def suggest_team(description: str, link: str) -> Tuple[str, List[str]]:
+    """
+    Recebe description e link (strings).
+    Retorna (sugestao_principal, lista_de_justificativas).
+    Ex.: ("Banco de Dados", ["Platcom encontrado"])
+    """
+    desc = (description or "").lower()
+    link_low = (link or "").lower()
+    matches = []
+
+    # Regra 1: Platcom -> Banco de Dados (alta prioridade)
+    if "platcom" in desc:
+        matches.append("Banco de Dados (contém 'Platcom')")
+
+    # Regra 2: CGMP25 -> Banco de Dados
+    if "cgmp25" in desc:
+        matches.append("Banco de Dados (contém 'CGMP25')")
+
+    # Regra 3: CGMP6 e não Platcom -> Produção
+    if "cgmp6" in desc and "platcom" not in desc:
+        matches.append("Produção (contém 'CGMP6' e não contém 'Platcom')")
+
+    # Regra 4: Query e link com webhook -> Gestão de Crises
+    if "query" in desc and "webhook" in link_low:
+        matches.append("Gestão de Crises (tem 'Query' e link com 'webhook')")
+
+    # Regra 5: OSB -> V8 Whatsapp
+    if "osb" in desc:
+        matches.append("V8 Whatsapp (contém 'OSB')")
+
+    # Regra 6: WebLogic -> V8 Whatsapp
+    if "weblogic" in desc:
+        matches.append("V8 Whatsapp (contém 'WebLogic')")
+
+    # Regra 7: .prd (aparecer no texto ou link) -> Provavelmente Produção
+    # usamos regex para detectar ".prd" como substring (ex: host.prd)
+    if re.search(r"\.prd\b", desc) or re.search(r"\.prd\b", link_low):
+        matches.append("Produção (contém '.prd')")
+
+    # Se nenhuma regra casou:
+    if not matches:
+        return ("Sem sugestão automática — verificar manualmente", [])
+
+    # Sugestão principal: a primeira match (maior prioridade)
+    return (matches[0].split(" (")[0], matches)
 
 STEP_LABELS = [
     "Colar o NÚMERO do alerta",
