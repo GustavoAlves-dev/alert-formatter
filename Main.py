@@ -8,54 +8,43 @@ import re
 from typing import Tuple, List
 
 def suggest_team(description: str, link: str) -> Tuple[str, List[str]]:
-    """
-    Recebe description e link (strings).
-    Retorna (sugestao_principal, lista_de_justificativas).
-    Ex.: ("Banco de Dados", ["Platcom encontrado"])
-    """
     desc = (description or "").lower()
     link_low = (link or "").lower()
     matches = []
 
-    # Regra 1: Platcom -> Banco de Dados (alta prioridade)
     if "platcom" in desc:
         matches.append("Banco de Dados (contém 'Platcom')")
 
-    # Regra 2: CGMP25 -> Banco de Dados
     if "cgmp25" in desc:
         matches.append("Banco de Dados (contém 'CGMP25')")
 
-    # Regra 3: CGMP6 e não Platcom -> Produção
     if "cgmp6" in desc and "platcom" not in desc:
         matches.append("Produção (contém 'CGMP6' e não contém 'Platcom')")
 
-    # Regra 4: Query e link com webhook -> Gestão de Crises
     if "query" in desc and "webhook" in link_low:
-        matches.append("Gestão de Crises (tem 'Query' e link com 'webhook')")
+        matches.append("Gestão de Crises (tem 'Query' + link com webhook)")
+    
+    if  "webhook" in link_low:
+        matches.append("Gestão de Crises (tem link com webhook)")
 
-    # Regra 5: OSB -> V8 Whatsapp
     if "osb" in desc:
         matches.append("V8 Whatsapp (contém 'OSB')")
 
-    # Regra 6: WebLogic -> V8 Whatsapp
     if "weblogic" in desc:
         matches.append("V8 Whatsapp (contém 'WebLogic')")
 
-    # Regra 7: .prd (aparecer no texto ou link) -> Provavelmente Produção
-    # usamos regex para detectar ".prd" como substring (ex: host.prd)
     if re.search(r"\.prd\b", desc) or re.search(r"\.prd\b", link_low):
         matches.append("Produção (contém '.prd')")
 
-    # Se nenhuma regra casou:
     if not matches:
         return ("Sem sugestão automática — verificar manualmente", [])
 
-    # Sugestão principal: a primeira match (maior prioridade)
     return (matches[0].split(" (")[0], matches)
+
 
 STEP_LABELS = [
     "Colar o NÚMERO do alerta",
-    "Colar a DESCRIÇÃO (pode ser múltiplas linhas)",
+    "Colar a DESCRIÇÃO (uma única linha)",
     "Colar o LINK do Dynatrace (opcional; use PULAR se não houver)"
 ]
 
@@ -109,30 +98,18 @@ class AlertFormatterApp:
         self.prev_btn.config(state="normal" if self.step > 0 else "disabled")
         self.skip_btn.config(state="normal")
 
-        if self.step < len(STEP_LABELS) - 1:
-            self.next_btn.config(text="Próximo")
-        else:
-            self.next_btn.config(text="Concluir")
+        self.next_btn.config(text="Concluir" if self.step == len(STEP_LABELS) - 1 else "Próximo")
 
-        if self.step == 1:
-            self.multi_text = scrolledtext.ScrolledText(self.field_frame, width=70, height=10, wrap="word", font=("Segoe UI", 10))
-            if self.values[1]:
-                self.multi_text.insert("1.0", self.values[1])
-            self.multi_text.pack(pady=(6,0))
-            self.multi_text.focus_set()
-        else:
-            self.single_entry = ttk.Entry(self.field_frame, width=90, font=("Segoe UI", 10))
-            if self.values[self.step]:
-                self.single_entry.insert(0, self.values[self.step])
-            self.single_entry.pack(pady=(6,0))
-            self.single_entry.focus_set()
-            self.single_entry.bind("<Return>", lambda e: self.next_step())
+        # ✔ DESCRIÇÃO AGORA É UMA ÚNICA LINHA (Entry)
+        self.single_entry = ttk.Entry(self.field_frame, width=90, font=("Segoe UI", 10))
+        if self.values[self.step]:
+            self.single_entry.insert(0, self.values[self.step])
+        self.single_entry.pack(pady=(6,0))
+        self.single_entry.focus_set()
+        self.single_entry.bind("<Return>", lambda e: self.next_step())
 
     def get_current_input(self):
-        if self.step == 1:
-            return self.multi_text.get("1.0", "end").rstrip("\n")
-        else:
-            return self.single_entry.get().strip()
+        return self.single_entry.get().strip()
 
     def next_step(self):
         value = self.get_current_input()
@@ -169,32 +146,43 @@ class AlertFormatterApp:
             self.step -= 1
             self.update_ui()
 
-    # 🔥 CORRIGIDO: sem aspas na saída
     def format_message(self):
         num = self.values[0].strip()
         desc = self.values[1].strip()
         link = self.values[2].strip()
 
         lines = [num, desc, link]
-
-        final = "\n".join(lines)
+        final = "\n".join([l for l in lines if l])
         return final
 
     def show_result(self):
         formatted = self.format_message()
 
+        # ✔️ chama a sugestão do time AGORA
+        suggested_team, reasons = suggest_team(self.values[1], self.values[2])
+
         res = tk.Toplevel(self.root)
         res.title("Alerta formatado")
-        res.geometry("600x420")
+        res.geometry("600x460")
         res.resizable(False, False)
 
         lbl = ttk.Label(res, text="Mensagem pronta:", font=("Segoe UI", 11))
         lbl.pack(anchor="w", padx=12, pady=(12,4))
 
-        txt = scrolledtext.ScrolledText(res, width=74, height=14, wrap="word", font=("Segoe UI", 10))
+        txt = scrolledtext.ScrolledText(res, width=74, height=12, wrap="word", font=("Segoe UI", 10))
         txt.insert("1.0", formatted)
         txt.config(state="disabled")
         txt.pack(padx=12, pady=(0,8))
+
+        # ✔️ MOSTRAR SUGESTÃO DO TIME
+        ttk.Label(res, text=f"Sugestão de time: {suggested_team}", foreground="blue", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12)
+
+        if reasons:
+            r_label = ttk.Label(res, text="Regras ativadas:", font=("Segoe UI", 9))
+            r_label.pack(anchor="w", padx=12, pady=(4,0))
+
+            for rule in reasons:
+                ttk.Label(res, text=f"- {rule}", font=("Segoe UI", 8)).pack(anchor="w", padx=20)
 
         btn_frame = ttk.Frame(res)
         btn_frame.pack(fill="x", padx=12, pady=8)
